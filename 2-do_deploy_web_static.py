@@ -1,69 +1,56 @@
 #!/usr/bin/python3
-# a Fabric script (based on the file `1-pack_web_static.py`) that
-# distributes an archive to your web servers, using the function `do_deploy`
+"""Compress web static package
+"""
+from fabric.api import *
+from datetime import datetime
+from os import path
 
-from fabric.api import env, put, run
-# Import os for path manipulation (optional, depending on your implementation)
-import os
 
-
-# Define web server IPs
-env.hosts = ['52.91.126.218', '54.89.178.237']
+env.hosts = ['35.175.126.149', '54.144.148.54']
+env.user = 'ubuntu'
+env.key_filename = '~/.ssh/id_rsa'
 
 
 def do_deploy(archive_path):
-    """
-    Deploys the provided archive to web servers.
+        """Deploy web files to server
+        """
+        try:
+                if not (path.exists(archive_path)):
+                        return False
 
-    Args:
-        archive_path (str): Path to the archive file.
+                # upload archive
+                put(archive_path, '/tmp/')
 
-    Returns:
-        bool: True if deployment is successful, False otherwise.
-    """
+                # create target dir
+                timestamp = archive_path[-18:-4]
+                run('sudo mkdir -p /data/web_static/\
+releases/web_static_{}/'.format(timestamp))
 
-    if not os.path.exists(archive_path):
-        print(f"Error: Archive file {archive_path} does not exist.")
-        return False
+                # uncompress archive and delete .tgz
+                run('sudo tar -xzf /tmp/web_static_{}.tgz -C \
+/data/web_static/releases/web_static_{}/'
+                    .format(timestamp, timestamp))
 
-    # Extract the file name and folder name from the archive path
-    # Extracts the file name from the path
-    file_name = os.path.basename(archive_path)
-    # Removes the file extension to get the folder name
-    folder_name = file_name.replace(".tgz", "")
+                # remove archive
+                run('sudo rm /tmp/web_static_{}.tgz'.format(timestamp))
 
-    # Construct the folder path based on the folder name
-    folder_path = "/data/web_static/releases/{}/".format(folder_name)
+                # move contents into host web_static
+                run('sudo mv /data/web_static/releases/web_static_{}/web_static/* \
+/data/web_static/releases/web_static_{}/'.format(timestamp, timestamp))
 
-    try:
-        # Upload archive to temporary directory
-        put(archive_path, "/tmp/")
+                # remove extraneous web_static dir
+                run('sudo rm -rf /data/web_static/releases/\
+web_static_{}/web_static'
+                    .format(timestamp))
 
-        # Create release directory
-        run(f"mkdir -p {folder_path}")
+                # delete pre-existing sym link
+                run('sudo rm -rf /data/web_static/current')
 
-        # Extract archive to the release directory
-        run(f"tar -xzf /tmp/{file_name} -C {folder_path}")
+                # re-establish symbolic link
+                run('sudo ln -s /data/web_static/releases/\
+web_static_{}/ /data/web_static/current'.format(timestamp))
+        except:
+                return False
 
-        # Clean up temporary archive
-        run(f"rm -rf /tmp/{file_name}")
-
-        # Update symbolic link and directories
-        # Move content to release directory
-        run(f"mv {folder_path}web_static/* {folder_path}")
-
-        # Remove empty web_static directory
-        run(f"rm -rf {folder_path}web_static")
-
-        # Delete old current link
-        run("rm -rf /data/web_static/current")
-
-        # Create new current link
-        run(f"ln -sf {folder_path} /data/web_static/current")
-
-        print("New version deployed!")
+        # return True on success
         return True
-
-    except Exception as e:
-        print(f"Error deploying archive: {e}")
-        return False
